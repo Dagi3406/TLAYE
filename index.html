@@ -603,6 +603,14 @@ button{font-family:inherit}
 <!-- music toggle -->
 <button class="music-btn" id="musicBtn" aria-label="Toggle music">♪</button>
 
+<!-- ============================================================
+     BACKGROUND MUSIC
+     Put your song file next to this HTML and name it  music.mp3
+     (or change the src below). If the file is missing, the page
+     automatically falls back to the built-in chant synth.
+============================================================ -->
+<audio id="bgm" src="mezmur1.mp3" loop preload="auto" playsinline></audio>
+
 <!-- main card -->
 <main class="card">
 
@@ -741,16 +749,16 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ============================================================
-   AUDIO ENGINE  (Web Audio API — no external files)
-   A quiet, chant-like modal arpeggio in the spirit of ዜማ
+   AUDIO CONTEXT  (used ONLY for the little sound effects now)
 ============================================================ */
-let ctx = null, master = null, musicGain = null;
-let musicPlaying = false;
+let ctx = null, master = null;
+let musicGain = null;          // only used by the fallback synth
 let schedTimer = null, nextNoteTime = 0, stepIdx = 0;
 
 function ensureAudio() {
   if (ctx) return;
   const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
   ctx = new AC();
 
   master = ctx.createGain();
@@ -768,7 +776,24 @@ function ensureAudio() {
   musicGain.connect(warm);
 }
 
-/* ---- modal progression: Dm – Bb – F – C ---- */
+/* ============================================================
+   BACKGROUND MUSIC
+   1st choice: the <audio id="bgm"> element (your real song)
+   2nd choice: built-in chant synth, if the file is missing
+============================================================ */
+const bgm = document.getElementById('bgm');
+const musicBtn = $('#musicBtn');
+
+let musicPlaying = false;   // true if EITHER source is playing
+let synthPlaying = false;   // true only when the fallback synth runs
+let fileOk       = true;    // set false if music.mp3 can't load
+let fadeTimer    = null;
+
+const MUSIC_VOLUME = 0.55;
+
+bgm.addEventListener('error', () => { fileOk = false; });
+
+/* ---------- fallback synth (the original chant engine) ---------- */
 const CHORDS = [
   [146.83, 174.61, 220.00, 293.66], // Dm
   [116.54, 146.83, 174.61, 233.08], // Bb
@@ -792,12 +817,11 @@ function playNote(freq, time, dur = 1.6, vol = 0.07, type = 'triangle') {
 }
 
 function scheduler() {
-  if (!ctx) return;
+  if (!ctx || !synthPlaying) return;
   while (nextNoteTime < ctx.currentTime + 0.3) {
     const chord = CHORDS[Math.floor(stepIdx / 8) % CHORDS.length];
     const note  = chord[PATTERN[stepIdx % 8]];
     playNote(note, nextNoteTime, 1.7, 0.062);
-    /* drone — like the sustained tone under the chant */
     if (stepIdx % 8 === 0) playNote(chord[0] / 2, nextNoteTime, 2.8, 0.055, 'sine');
     if (stepIdx % 8 === 4) playNote(chord[3] * 2, nextNoteTime, 1.1, 0.026, 'sine');
     nextNoteTime += STEP_TIME;
@@ -805,33 +829,82 @@ function scheduler() {
   }
 }
 
-function startMusic() {
+function startSynth() {
   ensureAudio();
+  if (!ctx) { updateMusicBtn(); return; }
   if (ctx.state === 'suspended') ctx.resume();
-  if (musicPlaying) return;
-  musicPlaying = true;
+  if (synthPlaying) return;
+  synthPlaying = true;
   stepIdx = 0;
   nextNoteTime = ctx.currentTime + 0.15;
   musicGain.gain.cancelScheduledValues(ctx.currentTime);
   musicGain.gain.setValueAtTime(musicGain.gain.value, ctx.currentTime);
   musicGain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 1.6);
   schedTimer = setInterval(scheduler, 60);
-  updateMusicBtn();
 }
 
-function stopMusic() {
-  if (!musicPlaying) return;
-  musicPlaying = false;
+function stopSynth() {
+  if (!synthPlaying) return;
+  synthPlaying = false;
   clearInterval(schedTimer); schedTimer = null;
   if (musicGain && ctx) {
     musicGain.gain.cancelScheduledValues(ctx.currentTime);
     musicGain.gain.setValueAtTime(musicGain.gain.value, ctx.currentTime);
     musicGain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
   }
+}
+
+/* ---------- fade helper for the audio file ---------- */
+function fadeTo(audio, target, ms) {
+  clearInterval(fadeTimer);
+  const from = audio.volume;
+  const steps = 24;
+  let i = 0;
+  fadeTimer = setInterval(() => {
+    i++;
+    audio.volume = Math.max(0, Math.min(1, from + (target - from) * (i / steps)));
+    if (i >= steps) { clearInterval(fadeTimer); fadeTimer = null; }
+  }, ms / steps);
+}
+
+/* ---------- master controls ---------- */
+function startMusic() {
+  if (musicPlaying) return;
+
+  if (fileOk && bgm) {
+    bgm.volume = 0;
+    const p = bgm.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        musicPlaying = true;
+        fadeTo(bgm, MUSIC_VOLUME, 1600);
+        updateMusicBtn();
+      }).catch(() => {
+        /* file missing / blocked → fall back to synth */
+        fileOk = false;
+        startSynth();
+        musicPlaying = true;
+        updateMusicBtn();
+      });
+      return;
+    }
+  }
+
+  startSynth();
+  musicPlaying = true;
   updateMusicBtn();
 }
 
-const musicBtn = $('#musicBtn');
+function stopMusic() {
+  if (!musicPlaying) return;
+  musicPlaying = false;
+  clearInterval(fadeTimer); fadeTimer = null;
+  if (bgm && !bgm.paused) fadeTo(bgm, 0, 500);
+  setTimeout(() => { try { bgm.pause(); } catch (e) {} }, 520);
+  stopSynth();
+  updateMusicBtn();
+}
+
 function updateMusicBtn() {
   musicBtn.classList.toggle('playing', musicPlaying);
   musicBtn.textContent = musicPlaying ? '♫' : '♪';
@@ -840,7 +913,7 @@ function updateMusicBtn() {
 
 musicBtn.addEventListener('click', () => {
   ensureAudio();
-  if (ctx.state === 'suspended') ctx.resume();
+  if (ctx && ctx.state === 'suspended') ctx.resume();
   musicPlaying ? stopMusic() : startMusic();
 });
 
@@ -848,7 +921,7 @@ musicBtn.addEventListener('click', () => {
 function unlockAudio(e) {
   if (e.target.closest && e.target.closest('.music-btn')) return;
   ensureAudio();
-  if (ctx.state === 'suspended') ctx.resume();
+  if (ctx && ctx.state === 'suspended') ctx.resume();
   if (!musicPlaying) startMusic();
   document.removeEventListener('pointerdown', unlockAudio);
 }
@@ -859,6 +932,7 @@ document.addEventListener('pointerdown', unlockAudio);
 ============================================================ */
 function sfx(fn) {
   ensureAudio();
+  if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume();
   fn(ctx.currentTime);
 }
@@ -1156,7 +1230,7 @@ function openEnvelope() {
   envOpened = true;
 
   ensureAudio();
-  if (ctx.state === 'suspended') ctx.resume();
+  if (ctx && ctx.state === 'suspended') ctx.resume();
 
   envelope.style.animation = 'none';
   envelope.classList.add('open');
