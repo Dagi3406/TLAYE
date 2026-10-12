@@ -339,6 +339,15 @@ button{font-family:inherit}
   background:#f7edd6;
   border:1px solid rgba(201,162,39,.3);
 }
+
+/* === NEW: real photo fills the square === */
+.photo img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+
 .ph-sky{position:absolute;inset:0;background:linear-gradient(180deg,#fdf0cd 0%,#fbe3b8 48%,#fff8e8 100%)}
 .ph-sun{
   position:absolute;top:15%;left:50%;transform:translateX(-50%);
@@ -603,12 +612,7 @@ button{font-family:inherit}
 <!-- music toggle -->
 <button class="music-btn" id="musicBtn" aria-label="Toggle music">♪</button>
 
-<!-- ============================================================
-     BACKGROUND MUSIC
-     Put your song file next to this HTML and name it  music.mp3
-     (or change the src below). If the file is missing, the page
-     automatically falls back to the built-in chant synth.
-============================================================ -->
+<!-- BACKGROUND MUSIC — put mezmur1.mp3 next to this HTML file -->
 <audio id="bgm" src="mezmur1.mp3" loop preload="auto" playsinline></audio>
 
 <!-- main card -->
@@ -660,8 +664,8 @@ button{font-family:inherit}
     <div class="photo-wrap">
       <figure class="polaroid" id="polaroid">
         <div class="photo">
-         <img src="photo1.png" alt="Dagi & Yene Tlaye" />
-          </div>
+          <img src="photo1.png" alt="Dagi & Yene Tlaye" />
+        </div>
         <figcaption>ዳጊ እና የኔ ጥላዬ<span class="fig-en">Dagi &amp; Yene Tlaye</span></figcaption>
       </figure>
     </div>
@@ -718,16 +722,11 @@ button{font-family:inherit}
 
 </main>
 
-<!-- fullscreen photo view -->
+<!-- fullscreen photo view — NOW USES THE REAL PHOTO -->
 <div class="lightbox" id="lightbox">
   <figure class="polaroid">
     <div class="photo">
-      <div class="ph-sky"></div>
-      <div class="ph-sun"></div>
-      <div class="ph-hill h1"></div>
-      <div class="ph-hill h2"></div>
-      <div class="ph-church"></div>
-      <div class="ph-dove">🕊️</div>
+      <img src="photo1.png" alt="Dagi & Yene Tlaye" />
     </div>
     <figcaption>ዳጊ እና የኔ ጥላዬ<span class="fig-en">Dagi &amp; Yene Tlaye</span></figcaption>
   </figure>
@@ -781,7 +780,7 @@ const musicBtn = $('#musicBtn');
 
 let musicPlaying = false;   // true if EITHER source is playing
 let synthPlaying = false;   // true only when the fallback synth runs
-let fileOk       = true;    // set false if music.mp3 can't load
+let fileOk       = true;    // set false if mezmur1.mp3 can't load
 let fadeTimer    = null;
 
 const MUSIC_VOLUME = 0.55;
