@@ -612,10 +612,8 @@ button{font-family:inherit}
 <!-- music toggle -->
 <button class="music-btn" id="musicBtn" aria-label="Toggle music">♪</button>
 
-<!-- BACKGROUND MUSIC — put mezmur1.mp3 next to this HTML file -->
-<audio id="bgm" src="mezmur1.mp3" loop preload="auto" playsinline></audio>
-<audio id="bgm" src="mezmur4.mp3" loop preload="auto" playsinline></audio>
-
+<!-- BACKGROUND MUSIC — playlist: mezmur1.mp3 → mezmur4.mp3 -->
+<audio id="bgm" preload="auto" playsinline></audio>
 
 <!-- main card -->
 <main class="card">
@@ -771,21 +769,26 @@ function ensureAudio() {
 }
 
 /* ============================================================
-   BACKGROUND MUSIC
-   1st choice: the <audio id="bgm"> element (your real song)
-   2nd choice: built-in chant synth, if the file is missing
+   BACKGROUND MUSIC  —  PLAYLIST
+   mezmur1.mp3 → mezmur4.mp3 → mezmur1.mp3 → …
+   1st choice: the real audio files
+   2nd choice: built-in chant synth, only if NO file can load
 ============================================================ */
 const bgm = document.getElementById('bgm');
 const musicBtn = $('#musicBtn');
 
-let musicPlaying = false;   // true if EITHER source is playing
-let synthPlaying = false;   // true only when the fallback synth runs
-let fileOk       = true;    // set false if mezmur1.mp3 can't load
-let fadeTimer    = null;
-
+/* 👇 add more songs to the list and they will play in order */
+const PLAYLIST = ['mezmur1.mp3', 'mezmur4.mp3'];
 const MUSIC_VOLUME = 0.55;
 
-bgm.addEventListener('error', () => { fileOk = false; });
+let musicPlaying = false;          // true if EITHER source is playing
+let synthPlaying = false;          // true only when the fallback synth runs
+let usingSynth   = false;
+let wantPlay     = false;          // the user wants music on
+let trackIdx     = 0;
+let fadeTimer    = null;
+let errorLock    = false;
+const failedTracks = new Set();
 
 /* ---------- fallback synth (the original chant engine) ---------- */
 const CHORDS = [
@@ -861,40 +864,83 @@ function fadeTo(audio, target, ms) {
   }, ms / steps);
 }
 
+/* ---------- playlist helpers ---------- */
+function nextGoodTrack(from) {
+  for (let i = 1; i <= PLAYLIST.length; i++) {
+    const idx = (from + i) % PLAYLIST.length;
+    if (!failedTracks.has(idx)) return idx;
+  }
+  return from;
+}
+
+function tryTrack(i) {
+  trackIdx = ((i % PLAYLIST.length) + PLAYLIST.length) % PLAYLIST.length;
+  bgm.src = PLAYLIST[trackIdx];
+  bgm.volume = 0;
+  try { bgm.load(); } catch (e) {}
+
+  const p = bgm.play();
+  if (p && typeof p.then === 'function') {
+    p.then(() => {
+      musicPlaying = true;
+      usingSynth   = false;
+      fadeTo(bgm, MUSIC_VOLUME, 1600);
+      updateMusicBtn();
+    }).catch(() => onTrackError());
+  } else {
+    musicPlaying = true;
+    usingSynth   = false;
+    bgm.volume   = MUSIC_VOLUME;
+    updateMusicBtn();
+  }
+}
+
+function onTrackError() {
+  if (!wantPlay || errorLock) return;
+  errorLock = true;
+  setTimeout(() => { errorLock = false; }, 400);
+
+  failedTracks.add(trackIdx);
+
+  if (failedTracks.size >= PLAYLIST.length) {
+    /* every file failed → use the built-in chant */
+    usingSynth   = true;
+    musicPlaying = true;
+    startSynth();
+    updateMusicBtn();
+    return;
+  }
+  /* otherwise skip straight to the next song */
+  tryTrack(nextGoodTrack(trackIdx));
+}
+
+/* a file that 404s / can't decode → move on */
+bgm.addEventListener('error', () => { if (wantPlay) onTrackError(); });
+
+/* a song finished → play the next one (then wrap around) */
+bgm.addEventListener('ended', () => {
+  if (!wantPlay) return;
+  tryTrack(nextGoodTrack(trackIdx));
+});
+
 /* ---------- master controls ---------- */
 function startMusic() {
   if (musicPlaying) return;
-
-  if (fileOk && bgm) {
-    bgm.volume = 0;
-    const p = bgm.play();
-    if (p && typeof p.then === 'function') {
-      p.then(() => {
-        musicPlaying = true;
-        fadeTo(bgm, MUSIC_VOLUME, 1600);
-        updateMusicBtn();
-      }).catch(() => {
-        /* file missing / blocked → fall back to synth */
-        fileOk = false;
-        startSynth();
-        musicPlaying = true;
-        updateMusicBtn();
-      });
-      return;
-    }
-  }
-
-  startSynth();
-  musicPlaying = true;
-  updateMusicBtn();
+  wantPlay = true;
+  failedTracks.clear();
+  tryTrack(trackIdx);
 }
 
 function stopMusic() {
   if (!musicPlaying) return;
+  wantPlay     = false;
   musicPlaying = false;
+  usingSynth   = false;
   clearInterval(fadeTimer); fadeTimer = null;
-  if (bgm && !bgm.paused) fadeTo(bgm, 0, 500);
-  setTimeout(() => { try { bgm.pause(); } catch (e) {} }, 520);
+  if (bgm && !bgm.paused) {
+    fadeTo(bgm, 0, 500);
+    setTimeout(() => { try { bgm.pause(); } catch (e) {} }, 520);
+  }
   stopSynth();
   updateMusicBtn();
 }
